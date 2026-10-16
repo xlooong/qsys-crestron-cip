@@ -6,7 +6,7 @@
 
 PluginInfo = {
   Name = "wxl_personal_plug~crestronCIP",
-  Version = "1.1.3",
+  Version = "1.1.8",
   Author = "longwang",
   Id = "b7e8a2c1-3d4f-4a6e-9c2d-8f1e5b7a3c9d",
   Description = "Crestron CIP protocol gateway with configurable signal counts"
@@ -132,6 +132,19 @@ function GetProperties()
     Value = 5
   })
 
+  -- Periodic sync interval (seconds, 0 = disabled)
+  -- Re-sends update request so Crestron re-dumps ALL join values
+  -- (Crestron only sends on change; periodic sync keeps static signals fresh)
+  table.insert(props, {
+    Name = "sync_interval",
+    Type = "integer",
+    Min = 0,
+    Max = 3600,
+    Value = 60,
+    Header = "Sync",
+    Comment = "Seconds between full re-syncs. 0 = off. Default 60."
+  })
+
   return props
 end
 
@@ -176,7 +189,7 @@ function GetColor(props)
 end
 
 function GetPrettyName(props)
-  return "crestronCIP"
+  return "crestronCIP v" .. PluginInfo.Version
 end
 
 -- Define controls
@@ -186,22 +199,20 @@ function GetControls(props)
   local anaCount = math.floor(props["analog_count"].Value)
   local serCount = math.floor(props["serial_count"].Value)
 
-  -- IP address input (panel override)
+  -- IP address input (panel override only, NO external pin)
   table.insert(ctrls, {
     Name = "IP_Input",
     ControlType = "Text",
     DefaultValue = props["cip_ip"].Value,
-    PinStyle = "Input",
     UserPin = false,
     Count = 1
   })
 
-  -- IPID input (panel override, hex string e.g. "03")
+  -- IPID input (panel override only, hex string e.g. "03", NO external pin)
   table.insert(ctrls, {
     Name = "IPID_Input",
     ControlType = "Text",
     DefaultValue = props["cip_ipid"].Value,
-    PinStyle = "Input",
     UserPin = false,
     Count = 1
   })
@@ -228,9 +239,29 @@ function GetControls(props)
     Count = 1
   })
 
-  -- Monitor: log output (external pin available)
+  -- Monitor: system event log output (external pin available)
   table.insert(ctrls, {
     Name = "monitor_log",
+    ControlType = "Text",
+    DefaultValue = "",
+    PinStyle = "Output",
+    UserPin = true,
+    Count = 1
+  })
+
+  -- Monitor: RX log (Crestron -> Q-SYS) output (external pin available)
+  table.insert(ctrls, {
+    Name = "monitor_rx",
+    ControlType = "Text",
+    DefaultValue = "",
+    PinStyle = "Output",
+    UserPin = true,
+    Count = 1
+  })
+
+  -- Monitor: TX log (Q-SYS -> Crestron) output (external pin available)
+  table.insert(ctrls, {
+    Name = "monitor_tx",
     ControlType = "Text",
     DefaultValue = "",
     PinStyle = "Output",
@@ -438,6 +469,8 @@ function GetControlLayout(props)
         if signalType == "Digital" then
           inLayout.ButtonStyle = "Toggle"
           inLayout.Color = Palette.Green
+          inLayout.UnlinkOffColor = true
+          inLayout.OffColor = {80, 80, 80}
         else
           inLayout.FontSize = 9
           inLayout.HTextAlign = "Left"
@@ -483,6 +516,8 @@ function GetControlLayout(props)
         if signalType == "Digital" then
           outLayout.ButtonStyle = "Toggle"
           outLayout.Color = Palette.Red
+          outLayout.UnlinkOffColor = true
+          outLayout.OffColor = {80, 80, 80}
         else
           outLayout.FontSize = 9
           outLayout.HTextAlign = "Left"
@@ -505,7 +540,7 @@ function GetControlLayout(props)
       StrokeWidth = 1,
       CornerRadius = 6,
       Position = {8, noteY},
-      Size = {324, 80}
+      Size = {324, 95}
     })
     local function sNote(text)
       table.insert(graphics, {
@@ -637,7 +672,7 @@ function GetControlLayout(props)
       StrokeWidth = 1,
       CornerRadius = 6,
       Position = {8, 155},
-      Size = {324, 685}
+      Size = {324, 1010}
     })
     local noteY = 171
     local noteLine = 13
@@ -653,7 +688,7 @@ function GetControlLayout(props)
       noteY = noteY + noteLine
     end
 
-    addNote("Crestron CIP Gateway v1.1.3 / Crestron CIP 协议网关")
+    addNote("Crestron CIP Gateway v1.1.8 / Crestron CIP 协议网关")
     addNote("TCP port 41794, connects Q-SYS Core to Crestron processor via CIP.")
     addNote("TCP 端口 41794，通过 CIP 协议连接 Q-SYS Core 与 Crestron 中控。")
     addNote("")
@@ -707,6 +742,26 @@ function GetControlLayout(props)
     addNote("v1.1.3: 修复forceReconnect前向引用、monitor页fs未定义、启动重复连接")
     addNote("        boolean/integer property types, Led status, RectifyProperties validation")
     addNote("        属性改用boolean/integer类型、状态灯改用Led、属性校验钳制")
+    addNote("v1.1.4: initial-sync flag, Level2 watchdog only before first signal data")
+    addNote("v1.1.4: 初始同步标志，Level2看门狗仅在首包信号前生效")
+    addNote("        rx buffer overflow guard, IP_Input panel-only, notes overflow fix")
+    addNote("        接收缓冲区溢出保护、IP输入仅面板、Notes超框修复")
+    addNote("v1.1.5: retry registration on IPID rejection (FF FF 02)")
+    addNote("v1.1.5: 注册被拒（FF FF 02）自动重试")
+    addNote("        auto-reconnect when IP/IPID changed at runtime")
+    addNote("        运行时修改 IP/IPID 自动重连")
+    addNote("v1.1.6: monitor log split into System / RX / TX")
+    addNote("v1.1.6: 监控日志分为系统 / RX / TX 三区")
+    addNote("        System=events, RX=Crestron->QSC, TX=QSC->Crestron")
+    addNote("        系统=事件, RX=收到, TX=发送")
+    addNote("v1.1.7: full output sync after (re)registration")
+    addNote("v1.1.7: 注册/重连成功后同步全部输出状态")
+    addNote("        re-send Digital/Analog/Serial output current values")
+    addNote("        重发数字/模拟/串口输出的当前值")
+    addNote("v1.1.8: digital On/Off visible via OffColor, click snap-back")
+    addNote("v1.1.8: 数字量开关颜色区分显示、误触自动回弹")
+    addNote("        periodic update request keeps static digital in sync")
+    addNote("        周期性更新请求保持静止数字量实时同步")
 
   elseif CurrentPage.ptype == "monitor" then
     local fs = 12
@@ -720,15 +775,61 @@ function GetControlLayout(props)
       Size = {300, 20}
     })
 
-    -- Log display area
+    -- System events area (connection / registration / errors)
+    table.insert(graphics, {
+      Type = "Text",
+      Text = "System Events / 系统事件",
+      FontSize = 10,
+      HTextAlign = "Left",
+      Position = {8, 28},
+      Size = {324, 16}
+    })
     layout["monitor_log"] = {
-      PrettyName = "Monitor Log",
+      PrettyName = "System Log",
       Style = "Text",
-      FontSize = 9,
+      FontSize = 8,
       HTextAlign = "Left",
       VTextAlign = "Top",
-      Position = {8, 32},
-      Size = {324, 420}
+      Position = {8, 44},
+      Size = {324, 130}
+    }
+
+    -- RX area: Crestron -> Q-SYS
+    table.insert(graphics, {
+      Type = "Text",
+      Text = "RX  Crestron -> Q-SYS / 接收",
+      FontSize = 10,
+      HTextAlign = "Left",
+      Position = {8, 178},
+      Size = {324, 16}
+    })
+    layout["monitor_rx"] = {
+      PrettyName = "RX Log",
+      Style = "Text",
+      FontSize = 8,
+      HTextAlign = "Left",
+      VTextAlign = "Top",
+      Position = {8, 194},
+      Size = {324, 130}
+    }
+
+    -- TX area: Q-SYS -> Crestron
+    table.insert(graphics, {
+      Type = "Text",
+      Text = "TX  Q-SYS -> Crestron / 发送",
+      FontSize = 10,
+      HTextAlign = "Left",
+      Position = {8, 328},
+      Size = {324, 16}
+    })
+    layout["monitor_tx"] = {
+      PrettyName = "TX Log",
+      Style = "Text",
+      FontSize = 8,
+      HTextAlign = "Left",
+      VTextAlign = "Top",
+      Position = {8, 344},
+      Size = {324, 130}
     }
 
     -- Clear button
@@ -739,17 +840,17 @@ function GetControlLayout(props)
       ButtonStyle = "Trigger",
       Color = Palette.Red,
       Margin = 2,
-      Position = {8, 460},
+      Position = {8, 482},
       Size = {100, 30}
     }
 
     -- Status info
     table.insert(graphics, {
       Type = "Text",
-      Text = "Max 50 lines / 最多50行  |  Auto-scroll / 自动滚动",
+      Text = "Max 30 lines each / 每区最多30行  |  Auto-scroll / 自动滚动",
       FontSize = 9,
       HTextAlign = "Left",
-      Position = {120, 468},
+      Position = {120, 490},
       Size = {210, 20}
     })
 
@@ -763,10 +864,10 @@ function GetControlLayout(props)
       StrokeColor = Palette.Black,
       StrokeWidth = 1,
       CornerRadius = 6,
-      Position = {8, 500},
-      Size = {324, 130}
+      Position = {8, 522},
+      Size = {324, 150}
     })
-    local mY = 516
+    local mY = 538
     local function mNote(text)
       table.insert(graphics, {
         Type = "Text",
@@ -778,12 +879,14 @@ function GetControlLayout(props)
       })
       mY = mY + 13
     end
-    mNote("Real-time log of all CIP signal changes and connection events.")
-    mNote("实时记录所有 CIP 信号变化和连接事件。")
-    mNote("Format: HH:MM:SS [Flow] [Type Dir N] = value")
-    mNote("格式: 时:分:秒 [流向] [类型 方向 编号] = 值")
-    mNote("Flow: QSC->Crestron / Crestron->QSC / System")
-    mNote("流向: QSC发Crestron / Crestron发QSC / 系统事件")
+    mNote("Three independent log areas:")
+    mNote("三个独立日志区：")
+    mNote("System: connection / registration / error events")
+    mNote("系统: 连接 / 注册 / 错误事件")
+    mNote("RX: data received from Crestron (Crestron -> Q-SYS)")
+    mNote("RX: 从Crestron收到的数据 (Crestron -> Q-SYS)")
+    mNote("TX: data sent to Crestron (Q-SYS -> Crestron)")
+    mNote("TX: 发往Crestron的数据 (Q-SYS -> Crestron)")
 
   elseif CurrentPage.ptype == "digital" then
     renderSignalPage(CurrentPage, "Digital")
@@ -798,6 +901,13 @@ end
 
 --==============================================================================
 -- Runtime logic (executes on Core)
+-- v1.1.8: OffColor digital display, In-button snap-back, periodic update request
+-- v1.1.7: full output sync (Digital/Analog/Serial) after re-registration
+-- v1.1.6: monitor log split into System / RX (Crestron->QSC) / TX (QSC->Crestron)
+-- v1.1.5: registration retry on IPID rejection (FF FF 02)
+--         auto-reconnect when IP/IPID changed at runtime
+-- v1.1.4: initial-sync flag, Level2 watchdog only before first signal data
+--         rx buffer overflow guard, IP_Input panel-only, notes overflow fix
 -- v1.1.3: fix forceReconnect forward ref, monitor fs nil, double connect on startup
 --         boolean/integer property types, Led status indicator, RectifyProperties
 -- v1.1.2: os.time() watchdog, post-reg signal check, forceReconnect()
@@ -817,25 +927,44 @@ if Controls then
   local hbTimer         = Timer.New()
   local reconnectTimer  = Timer.New()
   local regTimeoutTimer = Timer.New()
+  local regRetryTimer   = Timer.New()
+  local configChangeTimer = Timer.New()
   local watchdogTimer   = Timer.New()
+  local syncTimer       = Timer.New()  -- periodic update request (static signal refresh)
   local isConnected     = false
   local isRegistered    = false
   local programReady    = false
   local rxBuffer        = ""
   local userDisconnected = false
+  local lastConfigIP    = ""  -- last applied IP (for change detection)
+  local lastConfigIPID  = ""  -- last applied IPID hex string (for change detection)
   local lastDataTime    = 0  -- os.time() of last received byte (incl. heartbeats)
   local lastSignalTime  = 0  -- os.time() of last real signal data (digital/analog/serial)
   local regCompleteTime = 0  -- os.time() when CIP registration succeeded
+  local initialSyncDone = false  -- true after 0x1C end-of-query or first signal data
   local WATCHDOG_TIMEOUT = 20  -- seconds without ANY data before force-reconnect
   local POST_REG_TIMEOUT = 15  -- seconds after registration with no signal data -> force-reconnect
 
   -- Digital pulse timers (one per output join)
   local digitalPulseTimers = {}
 
-  -- Monitor log
-  local logLines = {}
-  local MAX_LOG_LINES = 50
+  -- Last-known real values of digital inputs (from Crestron), used to
+  -- restore panel display if user accidentally toggles the In button
+  local digitalInState = {}
+
+  -- Periodic-sync quiet flag: while true, per-signal RX/TX logs are suppressed
+  -- so a periodic re-dump of all joins does not flood the monitor buffers.
+  local syncQuiet = false
+  local syncQuietTime = 0
+
+  -- Monitor logs: three independent buffers (System / RX / TX)
+  local sysLogLines = {}
+  local rxLogLines  = {}
+  local txLogLines  = {}
+  local MAX_LOG_LINES = 30
   local function addLog(category, direction, detail)
+    -- During a periodic re-sync, suppress per-signal noise; keep System events
+    if syncQuiet and direction ~= "Event" then return end
     local ts = os.date("%H:%M:%S")
     local flow = ""
     if direction == "Out" then
@@ -859,12 +988,21 @@ if Controls then
         line = ts .. "  " .. flow .. " [" .. category .. " " .. direction .. "] " .. detail
       end
     end
-    table.insert(logLines, line)
-    while #logLines > MAX_LOG_LINES do
-      table.remove(logLines, 1)
+    -- Route to per-direction buffer + control
+    local buf, ctrlName
+    if direction == "In" then
+      buf, ctrlName = rxLogLines, "monitor_rx"
+    elseif direction == "Out" then
+      buf, ctrlName = txLogLines, "monitor_tx"
+    else
+      buf, ctrlName = sysLogLines, "monitor_log"
     end
-    if Controls.monitor_log then
-      Controls.monitor_log.String = table.concat(logLines, "\n")
+    table.insert(buf, line)
+    while #buf > MAX_LOG_LINES do
+      table.remove(buf, 1)
+    end
+    if Controls[ctrlName] then
+      Controls[ctrlName].String = table.concat(buf, "\n")
     end
   end
 
@@ -935,17 +1073,26 @@ if Controls then
     end
   end
 
-  function sendDigital(join, value)
+  -- Send update request: asks Crestron to re-dump ALL join values
+  -- (digital/analog/serial). Crestron only sends signals on change, so a
+  -- periodic re-request keeps static digital inputs/outputs in sync.
+  function sendUpdateRequest(reason)
+    if not tcp or not isConnected then return end
+    tcp:Write(string.char(0x05,0x00,0x05,0x00,0x00,0x02,0x03,0x00))
+    print("[CIP] Update request sent (" .. reason .. ")")
+  end
+
+  function sendDigital(join, value, silent)
     if not isRegistered or not tcp or join < 1 or join > MAX_DIGITAL then return end
     join = join - 1
     local jh = math.floor(join / 256)
     local jl = join % 256
     local flag = value and 0x00 or 0x80
     tcp:Write(string.char(0x05,0x00,0x06,0x00,0x00,0x03,0x00,jl,jh+flag))
-    addLog("Digital", "Out", (join + 1) .. " = " .. tostring(value))
+    if not silent then addLog("Digital", "Out", (join + 1) .. " = " .. tostring(value)) end
   end
 
-  function sendAnalog(join, value)
+  function sendAnalog(join, value, silent)
     if not isRegistered or not tcp or join < 1 or join > MAX_ANALOG then return end
     join = join - 1
     value = math.min(math.max(tonumber(value) or 0, 0), 65535)
@@ -955,10 +1102,10 @@ if Controls then
     local vl = value % 256
     tcp:Write(string.char(0x05,0x00,0x08,0x00,0x00,0x05,0x14,jh,jl,vh,vl))
     updateAnalogVal("Analog_Out", join + 1, value)
-    addLog("Analog", "Out", (join + 1) .. " = " .. value)
+    if not silent then addLog("Analog", "Out", (join + 1) .. " = " .. value) end
   end
 
-  function sendString(join, str)
+  function sendString(join, str, silent)
     if not isRegistered or not tcp or join < 1 or join > MAX_SERIAL then return end
     join = join - 1
     local s = tostring(str)
@@ -970,7 +1117,34 @@ if Controls then
     local jl = join % 256
     local pkt = string.char(0x12,lenH,lenL,0,0,0,4+len,0x34,jh,jl,0x03) .. s
     tcp:Write(pkt)
-    addLog("Serial", "Out", (join + 1) .. " = \"" .. s .. "\"")
+    if not silent then addLog("Serial", "Out", (join + 1) .. " = \"" .. s .. "\"") end
+  end
+
+  -- === Full output sync: re-send ALL output values after (re)registration ===
+  -- After a reconnect the Crestron side has no knowledge of current output
+  -- states, so we must push Digital/Analog/Serial outputs again.
+  -- silent=true suppresses per-signal log spam (used by periodic sync).
+  function syncOutputs(silent)
+    if not isRegistered or not tcp then return end
+    if not silent then
+      print("[CIP] Syncing all outputs to Crestron...")
+      addLog("CIP", "Event", "Syncing all outputs to Crestron")
+    end
+    -- Digital outputs (toggle current state)
+    for i = 1, MAX_DIGITAL do
+      local c = Controls["Digital_Out_" .. i]
+      if c then sendDigital(i, c.Boolean, silent) end
+    end
+    -- Analog outputs (current knob value)
+    for i = 1, MAX_ANALOG do
+      local c = Controls["Analog_Out_" .. i]
+      if c then sendAnalog(i, c.Value, silent) end
+    end
+    -- Serial outputs (current string)
+    for i = 1, MAX_SERIAL do
+      local c = Controls["Serial_Out_" .. i]
+      if c then sendString(i, c.String, silent) end
+    end
   end
 
   -- === Parse a single Cresnet subpacket ===
@@ -983,8 +1157,12 @@ if Controls then
       if join >= 1 and join <= MAX_DIGITAL then
         local value = (jh & 0x80) == 0
         local ctrl = Controls["Digital_In_" .. join]
-        if ctrl then ctrl.Boolean = value end
+        if ctrl then
+          ctrl.Boolean = value
+          digitalInState[join] = value  -- remember true Crestron state
+        end
         lastSignalTime = os.time()
+        initialSyncDone = true
         addLog("Digital", "In", join .. " = " .. tostring(value))
       end
       return
@@ -1002,6 +1180,7 @@ if Controls then
         if ctrl then ctrl.Value = value end
         updateAnalogVal("Analog_In", join, value)
         lastSignalTime = os.time()
+        initialSyncDone = true
         addLog("Analog", "In", join .. " = " .. value)
       end
       return
@@ -1011,8 +1190,14 @@ if Controls then
       local cmd = subData:byte(1)
       if cmd == 0x1C then
         -- End of initial dump, send ack
+        initialSyncDone = true
         if tcp and isConnected then
           tcp:Write(string.char(0x05,0x00,0x05,0x00,0x00,0x02,0x03,0x1D))
+        end
+        -- Periodic re-sync finished -> resume logging
+        if syncQuiet then
+          syncQuiet = false
+          addLog("CIP", "Event", "Periodic sync complete")
         end
         print("[CIP] Sync complete (end-of-query), ack sent")
       end
@@ -1054,6 +1239,7 @@ if Controls then
           local ctrl = Controls["Serial_In_" .. join]
           if ctrl then ctrl.String = str end
           lastSignalTime = os.time()
+          initialSyncDone = true
           addLog("Serial", "In", join .. " = \"" .. str .. "\"")
         end
       end
@@ -1076,15 +1262,26 @@ if Controls then
     if typ == 0x02 and payloadLen >= 3 then
       if payload:sub(1,3) == "\xFF\xFF\x02" then
         print("[CIP] IPID not defined or processor booting (FF FF 02)")
+        addLog("CIP", "Event", "IPID rejected (FF FF 02), retrying in 5s")
+        -- Auto-retry registration: processor may still be booting
+        regRetryTimer:Stop()
+        regRetryTimer:Start(5)
       else
         isRegistered = true
         regCompleteTime = os.time()
         regTimeoutTimer:Stop()
+        regRetryTimer:Stop()
         print("[CIP] IPID registration successful (result: " .. toHex(payload) .. ")")
         addLog("CIP", "Event", "Registered IPID=0x" .. string.format("%02X", getTargetIPID()))
         -- Send update request to get initial join values
-        if tcp and isConnected then
-          tcp:Write(string.char(0x05,0x00,0x05,0x00,0x00,0x02,0x03,0x00))
+        sendUpdateRequest("initial registration")
+        -- Re-send all output states to Crestron (output sync after reconnect)
+        syncOutputs()
+        -- Start periodic re-sync so static digital signals keep refreshing
+        local syncInt = tonumber(Properties["sync_interval"].Value) or 60
+        syncTimer:Stop()
+        if syncInt > 0 then
+          syncTimer:Start(syncInt)
         end
         hbTimer:Start(15)
       end
@@ -1153,6 +1350,10 @@ if Controls then
     userDisconnected = false
     reconnectTimer:Stop()
     regTimeoutTimer:Stop()
+    regRetryTimer:Stop()
+    configChangeTimer:Stop()
+    syncTimer:Stop()
+    syncQuiet = false
     if tcp ~= nil then
       tcp:Disconnect()
       tcp = nil
@@ -1161,6 +1362,9 @@ if Controls then
     isRegistered = false
     programReady = false
     rxBuffer = ""
+    initialSyncDone = false
+    lastConfigIP = getTargetIP()
+    lastConfigIPID = string.format("%02X", getTargetIPID())
     tcp = TcpSocket.New()
     tcp.EventHandler = function(s, eventType)
       if eventType == "CONNECTED" then
@@ -1168,6 +1372,7 @@ if Controls then
         lastDataTime = os.time()
         lastSignalTime = 0
         regCompleteTime = 0
+        initialSyncDone = false
         if Controls.CIP_Status then Controls.CIP_Status.Boolean = true end
         if Controls.CIP_Connect then Controls.CIP_Connect.Boolean = true end
         print("[TCP] Connected to " .. getTargetIP() .. ":" .. CIP_PORT)
@@ -1185,6 +1390,10 @@ if Controls then
         hbTimer:Stop()
         pollTimer:Stop()
         regTimeoutTimer:Stop()
+        regRetryTimer:Stop()
+        configChangeTimer:Stop()
+        syncTimer:Stop()
+        syncQuiet = false
         watchdogTimer:Stop()
         print("[TCP] Connection closed")
         addLog("TCP", "Event", "Connection closed")
@@ -1201,6 +1410,10 @@ if Controls then
         hbTimer:Stop()
         pollTimer:Stop()
         regTimeoutTimer:Stop()
+        regRetryTimer:Stop()
+        configChangeTimer:Stop()
+        syncTimer:Stop()
+        syncQuiet = false
         watchdogTimer:Stop()
         print("[TCP] Connection error - check IP/network/Crestron")
         addLog("TCP", "Event", "Connection error")
@@ -1218,6 +1431,10 @@ if Controls then
     userDisconnected = true
     reconnectTimer:Stop()
     regTimeoutTimer:Stop()
+    regRetryTimer:Stop()
+    configChangeTimer:Stop()
+    syncTimer:Stop()
+    syncQuiet = false
     hbTimer:Stop()
     pollTimer:Stop()
     watchdogTimer:Stop()
@@ -1241,6 +1458,25 @@ if Controls then
     end
   end
 
+  -- Registration retry: auto-re-register after IPID rejection (FF FF 02)
+  regRetryTimer.EventHandler = function()
+    if isConnected and not isRegistered then
+      print("[CIP] Retrying IPID registration...")
+      addLog("CIP", "Event", "Retrying registration")
+      sendRegistration()
+      regRetryTimer:Start(5)
+    end
+  end
+
+  -- Config change debounce: IP/IPID edited -> reconnect with new settings
+  configChangeTimer.EventHandler = function()
+    if isConnected and not userDisconnected then
+      print("[CIP] IP/IPID changed, reconnecting...")
+      addLog("TCP", "Event", "IP/IPID changed, reconnecting")
+      doConnect()
+    end
+  end
+
   -- Reconnect timer
   reconnectTimer.EventHandler = function()
     if not userDisconnected and isAutoReconnect() then
@@ -1261,10 +1497,15 @@ if Controls then
     isRegistered = false
     programReady = false
     regCompleteTime = 0
+    initialSyncDone = false
     initControls()
     hbTimer:Stop()
     pollTimer:Stop()
     regTimeoutTimer:Stop()
+    regRetryTimer:Stop()
+    configChangeTimer:Stop()
+    syncTimer:Stop()
+    syncQuiet = false
     watchdogTimer:Stop()
     if isAutoReconnect() then
       reconnectTimer:Start(getReconnectInterval())
@@ -1273,7 +1514,8 @@ if Controls then
 
   -- Watchdog: catches dead connections and fake CIP sessions
   -- Level 1: no TCP data at all for WATCHDOG_TIMEOUT -> Crestron gone
-  -- Level 2: registered but no signal data for POST_REG_TIMEOUT -> fake session
+  -- Level 2: registered but no signal data AND initial sync not complete -> fake session
+  --   (after initial sync / first signal, idle systems are normal — only Level 1 applies)
   watchdogTimer.EventHandler = function()
     if not isConnected or userDisconnected then return end
     local now = os.time()
@@ -1283,8 +1525,8 @@ if Controls then
       forceReconnect("no data for " .. noData .. "s (Crestron unreachable)")
       return
     end
-    -- Level 2: registered but no real signal data
-    if isRegistered and regCompleteTime > 0 then
+    -- Level 2: registered but no real signal data AND initial sync not yet confirmed
+    if isRegistered and regCompleteTime > 0 and not initialSyncDone then
       local refTime = lastSignalTime > regCompleteTime and lastSignalTime or regCompleteTime
       local noSignal = now - refTime
       if noSignal > POST_REG_TIMEOUT then
@@ -1292,10 +1534,28 @@ if Controls then
         return
       end
     end
+    -- Safety: if periodic-sync quiet mode is stuck (no 0x1C reply), un-silence
+    if syncQuiet and now - syncQuietTime > 25 then
+      syncQuiet = false
+      addLog("CIP", "Event", "Periodic sync timeout, logging resumed")
+    end
   end
 
   -- Heartbeat
   hbTimer.EventHandler = sendHeartbeat
+
+  -- Periodic re-sync: re-request full dump so static digital signals
+  -- (which Crestron only sends on change) keep refreshing, then re-send
+  -- all output states to Crestron.
+  syncTimer.EventHandler = function()
+    if not isConnected or not isRegistered then return end
+    syncQuiet = true  -- suppress per-signal logs until dump completes
+    syncQuietTime = os.time()
+    sendUpdateRequest("periodic sync")
+    syncOutputs(true)
+    local syncInt = tonumber(Properties["sync_interval"].Value) or 60
+    if syncInt > 0 then syncTimer:Start(syncInt) end
+  end
 
   -- Data polling
   pollTimer.EventHandler = function()
@@ -1304,6 +1564,11 @@ if Controls then
     if data then
       rxBuffer = rxBuffer .. data
       lastDataTime = os.time()
+      -- Guard: prevent unbounded buffer growth on malformed data
+      if #rxBuffer > 65536 then
+        print("[CIP] RX buffer overflow (" .. #rxBuffer .. " bytes), clearing")
+        rxBuffer = ""
+      end
     end
     while #rxBuffer >= 4 do
       local lenH = rxBuffer:byte(2)
@@ -1324,12 +1589,51 @@ if Controls then
     end
   end
 
+  -- IP / IPID change detection: auto-reconnect when edited at runtime
+  -- Debounced 1s so typing does not trigger multiple reconnects
+  if Controls.IP_Input then
+    Controls.IP_Input.EventHandler = function(c)
+      local newIP = c.String
+      if newIP ~= "" and newIP ~= lastConfigIP then
+        configChangeTimer:Stop()
+        configChangeTimer:Start(1)
+      end
+    end
+  end
+  if Controls.IPID_Input then
+    Controls.IPID_Input.EventHandler = function(c)
+      local v = tonumber(c.String, 16)
+      if v and v >= 0x03 and v <= 0xFF then
+        local newID = string.format("%02X", v)
+        if newID ~= lastConfigIPID then
+          configChangeTimer:Stop()
+          configChangeTimer:Start(1)
+        end
+      end
+    end
+  end
+
   -- Monitor clear button
   if Controls.monitor_clear then
     Controls.monitor_clear.EventHandler = function(c)
-      logLines = {}
-      if Controls.monitor_log then
-        Controls.monitor_log.String = "Monitor cleared."
+      sysLogLines = {}
+      rxLogLines = {}
+      txLogLines = {}
+      if Controls.monitor_log then Controls.monitor_log.String = "System cleared." end
+      if Controls.monitor_rx  then Controls.monitor_rx.String  = "RX cleared." end
+      if Controls.monitor_tx  then Controls.monitor_tx.String  = "TX cleared." end
+    end
+  end
+
+  -- === Digital inputs: read-only display ===
+  -- Digital_In pins come FROM Crestron; the panel button must only display
+  -- the true state. If the user clicks it, immediately snap back to the
+  -- last known Crestron value (prevents display desync).
+  for i = 1, MAX_DIGITAL do
+    local ctrl = Controls["Digital_In_" .. i]
+    if ctrl then
+      ctrl.EventHandler = function(c)
+        c.Boolean = digitalInState[i] or false
       end
     end
   end
@@ -1387,17 +1691,31 @@ if Controls then
 
   -- === Startup ===
   initControls()
+  lastConfigIP = getTargetIP()
+  lastConfigIPID = string.format("%02X", getTargetIPID())
 
-  -- Verify monitor_log control exists and initialize
+  -- Verify monitor controls exist and initialize (System / RX / TX)
   if Controls.monitor_log then
-    Controls.monitor_log.String = "Monitor ready."
+    Controls.monitor_log.String = "System ready."
     print("[Monitor] monitor_log control OK (external output pin enabled)")
   else
     print("[Monitor] WARNING: monitor_log control NOT found!")
   end
+  if Controls.monitor_rx then
+    Controls.monitor_rx.String = "RX ready."
+    print("[Monitor] monitor_rx control OK (external output pin enabled)")
+  else
+    print("[Monitor] WARNING: monitor_rx control NOT found!")
+  end
+  if Controls.monitor_tx then
+    Controls.monitor_tx.String = "TX ready."
+    print("[Monitor] monitor_tx control OK (external output pin enabled)")
+  else
+    print("[Monitor] WARNING: monitor_tx control NOT found!")
+  end
 
   print("==================================")
-  print("crestronCIP gateway v1.1.3 started")
+  print("crestronCIP gateway v1.1.8 started")
   print("Digital: " .. MAX_DIGITAL .. " | Analog: " .. MAX_ANALOG .. " | Serial: " .. MAX_SERIAL)
   print("Pulse: " .. getPulseWidth() .. "s | Auto-reconnect: " .. tostring(isAutoReconnect()) ..
         " (" .. getReconnectInterval() .. "s)")
